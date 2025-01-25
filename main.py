@@ -13,7 +13,19 @@ def main():
     train_features = dataset("TrainingData", "train_brain.xlsx", data_type='training')
     val_features = dataset("TrainingData", "validation_brain.xlsx", data_type='validation')
 
+    accuracy = current_accuracy(train_features, val_features)
+    print(accuracy)
     population, toolbox = initialization(train_features, val_features)
+    algorithms.eaMuPlusLambda(
+    population,
+    toolbox,
+    mu=40,         # Number of parents
+    lambda_=80,    # Number of offspring
+    cxpb=0.5,       # Crossover probability
+    mutpb=0.5,      # Mutation probability
+    ngen=50,        # Number of generations
+    verbose=True
+    )
     #print(population)
     for individual in population:
         accuracy, complexity = evaluate(individual, toolbox)
@@ -42,8 +54,8 @@ def initialization(train_data, validate_data):
     toolbox.register("expr", gp.genFull, pset=skelton, min_=1, max_=5)
     toolbox.register("individual", tools.initIterate, creator.Individual,toolbox.expr)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-    toolbox.register("compile", gp.compile, pset=skelton)
-    toolbox.register("evaluate", evaluate, train_data=train_data, validate_data=validate_data, toolbox=toolbox)
+    toolbox.register("compile", gp.compile, pset=skelton) 
+    toolbox.register("evaluate", evaluate, toolbox=toolbox)
     toolbox.register("select", tools.selNSGA2)
     toolbox.register("mate", gp.cxOnePoint)
     toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr, pset=skelton)
@@ -76,8 +88,16 @@ def evaluate(individual, toolbox):
     train_labels = []
     for instance in train_data:
         features = instance[:-1]
-        train_features.append(func(*features))  # Construct features
-        train_labels.append(instance[-1])  # Label
+        # Check if func is not None before using it
+        if func is not None:
+            try:
+                # Call func with the features
+                train_features.append(func(*features))
+                train_labels.append(instance[-1])  # Label
+            except Exception as e:
+                print(f"Error during feature construction: {e}")
+        else:
+            print("Error: Function is None. Feature construction skipped.")
     
     # Prepare the validation features and labels
     validate_features = []
@@ -159,7 +179,26 @@ def dataset(directory, metadata_file, data_type='training'):
     return imagesfeatures
 
 
+def current_accuracy(train_data, validate_data):
+    # Extract features and labels for training data
+    train_features = [instance[:-1] for instance in train_data]
+    train_labels = [instance[-1] for instance in train_data]
+    
+    # Extract features and labels for validation data
+    validate_features = [instance[:-1] for instance in validate_data]
+    validate_labels = [instance[-1] for instance in validate_data]
 
+    # Initialize KNN classifier
+    knn = KNeighborsClassifier(n_neighbors=3)
+
+    # Train the classifier with raw features (no transformation)
+    knn.fit(train_features, train_labels)
+    
+    # Test the classifier on validation data and calculate accuracy
+    accuracy = knn.score(validate_features, validate_labels)
+    
+    return accuracy
+    
 main()
 
 
