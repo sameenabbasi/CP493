@@ -19,17 +19,17 @@ def main():
     algorithms.eaMuPlusLambda(
     population,
     toolbox,
-    mu=40,         # Number of parents
-    lambda_=80,    # Number of offspring
-    cxpb=0.5,       # Crossover probability
-    mutpb=0.5,      # Mutation probability
-    ngen=50,        # Number of generations
+    mu=50,         # Number of parents
+    lambda_=100,    # Number of offspring
+    cxpb=0.8,       # Crossover probability
+    mutpb=0.2,      # Mutation probability
+    ngen=30,        # Number of generations
     verbose=True
     )
     #print(population)
     for individual in population:
-        accuracy, complexity = evaluate(individual, toolbox)
-        print(accuracy, complexity)
+        accuracy = evaluate(individual, toolbox)
+        print(accuracy)
 
 def initialization(train_data, validate_data):
     skelton = gp.PrimitiveSet("individual", 1024)
@@ -43,9 +43,9 @@ def initialization(train_data, validate_data):
     #tree = gp.PrimitiveTree(expr)
 
     # Accuracy ↑, Features ↓, creating a fitness class
-    creator.create("FitnessMulti", base.Fitness, weights=(1.0, -1.0))  
+    creator.create("FitnessMin", base.Fitness, weights=(1.0,))  
     #creating an inidvudal class
-    creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMulti)
+    creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
 
     #registering the functions to a toolbox, and 
     toolbox = base.Toolbox()
@@ -92,8 +92,12 @@ def evaluate(individual, toolbox):
         if func is not None:
             try:
                 # Call func with the features
-                train_features.append(func(*features))
-                train_labels.append(instance[-1])  # Label
+                feature_value = func(*features)
+                if np.isfinite(feature_value):  # Check for NaN or Infinity
+                    train_features.append(feature_value)
+                    train_labels.append(instance[-1])  # Label
+                else:
+                    print(f"Warning: Invalid feature value (NaN or Infinity) for instance {instance}")
             except Exception as e:
                 print(f"Error during feature construction: {e}")
         else:
@@ -104,20 +108,29 @@ def evaluate(individual, toolbox):
     validate_labels = []
     for instance in validate_data:
         features = instance[:-1]
-        validate_features.append(func(*features))  # Construct features
-        validate_labels.append(instance[-1])  # Label
+        feature_value = func(*features)
+        if np.isfinite(feature_value):  # Check for NaN or Infinity
+            validate_features.append(feature_value)
+            validate_labels.append(instance[-1])  # Label
+        else:
+            print(f"Warning: Invalid feature value (NaN or Infinity) for validation instance {instance}")
     
-    # Train the KNN classifier on the training data
-    knn = KNeighborsClassifier(n_neighbors=3)
-    knn.fit([[f] for f in train_features], train_labels)
-    
-    # Test the KNN classifier on the validation data
-    accuracy = knn.score([[f] for f in validate_features], validate_labels)
-    
-    # Calculate the complexity (number of nodes in the tree)
-    complexity = len(individual)  # Total nodes in the tree
-    
-    return accuracy, complexity
+    if len(train_features) > 0 and len(validate_features) > 0:
+        try:
+            knn = KNeighborsClassifier(n_neighbors=3)
+            knn.fit([[f] for f in train_features], train_labels)
+
+            # Test the KNN classifier on the validation data
+            accuracy = knn.score([[f] for f in validate_features], validate_labels)
+
+            # Return accuracy as a tuple
+            return accuracy,
+        except ValueError as e:
+            print(f"Error during KNN fitting: {e}")
+            return 0.0,  # In case of error, return 0 accuracy
+    else:
+        print("Error: No valid features to train the KNN classifier.")
+        return 0.0,  # Return 0 accuracy if there are no valid features
 
 
 
