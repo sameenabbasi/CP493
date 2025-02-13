@@ -15,29 +15,34 @@ from sklearn.metrics import accuracy_score
 
 
 
-
 def main():
     #read the data from training and validation
     train_features = dataset("TrainingData", "train_brain.xlsx", data_type='training')
     val_features = dataset("TrainingData", "validation_brain.xlsx", data_type='validation')
+    test_features = dataset("TrainingData", "test_brain.xlsx", data_type='testing')
 
     #calculate the accuracy on raw features
-    accuracy = current_accuracy(train_features, val_features)
-    print(accuracy)
-    #initalizae a population
-    population, toolbox = initialization(train_features, val_features)
+    accuracy = current_accuracy(train_features, test_features)
+    print(f'Inital Accuracy on Raw Features: {accuracy}')
 
+    #initalizae a population
+    population, toolbox = initialization(train_features, val_features, test_features)
+    for individual in population:
+        accuracy = evaluate(individual, toolbox)
+        print(accuracy, individual)
+    
     #the genetic algorithn
     algorithms.eaMuPlusLambda(
     population,
     toolbox,
     mu=100,         # Number of parents
-    lambda_=100,    # Number of offspring
-    cxpb=0.4,       # Crossover probability
-    mutpb=0.6,      # Mutation probability
+    lambda_=80,    # Number of offspring
+    cxpb=0.7,       # Crossover probability
+    mutpb=0.3,      # Mutation probability
     ngen=30,        # Number of generations
     verbose=True
     )
+    
     #sub(add(ARG177, add(ARG409, ARG409)), ARG886)
     #add(add(add(add(ARG603, ARG493), add(add(add(ARG788, ARG768), ARG570), ARG920)), ARG920), add(ARG525, ARG493))
     #print(population)
@@ -50,9 +55,9 @@ def main():
         print(accuracy, individual)
 
     #take one best individual 
-    individual = 'sub(sub(add(add(ARG750, ARG739), mul(ARG567, ARG381)), mul(sub(ARG171, ARG671), sub(ARG969, ARG19))), sub(sub(mul(ARG804, ARG900), sub(ARG447, ARG516)), sub(mul(ARG596, ARG664), mul(ARG558, ARG297))))'
+    individual = 'mul(sub(add(mul(ARG596, ARG1014), add(ARG683, ARG123)), sub(add(ARG272, ARG982), add(ARG228, ARG886))), add(add(add(ARG288, ARG887), add(ARG899, ARG192)), mul(mul(ARG992, ARG57), sub(ARG160, ARG464))))'
     # Evaluate the individual on 3 models
-    accuracy_results = evaluate_individual(individual, train_features, val_features, toolbox)
+    accuracy_results = evaluate_individual(individual, train_features, val_features, test_features, toolbox)
     print("Accuracy Results:")
     print(accuracy_results)
 
@@ -62,13 +67,14 @@ def main():
 
 
 
-def initialization(train_data, validate_data):
+def initialization(train_data, validate_data, test_data):
     skelton = gp.PrimitiveSet("individual", 1024) #set the skeleton, so max number is 1024
 
     #adding functions / prinmitive nodes
     skelton.addPrimitive(operator.add, 2)
     skelton.addPrimitive(operator.sub, 2)
     skelton.addPrimitive(operator.mul, 2)
+    #skelton.addPrimitive(operator.truediv, 2)
 
     #gen full is one of three ways to generate the trees
     #expr = gp.genFull(skelton, min_ = 1, max_ = 5)
@@ -85,7 +91,8 @@ def initialization(train_data, validate_data):
     toolbox = base.Toolbox()
     toolbox.train_data = train_data
     toolbox.validate_data = validate_data
-    toolbox.register("expr", gp.genHalfAndHalf, pset=skelton, min_=4, max_=10) #tree creation
+    toolbox.test_data = test_data
+    toolbox.register("expr", gp.genHalfAndHalf, pset=skelton, min_=4, max_=15) #tree creation
     toolbox.register("individual", tools.initIterate, creator.Individual,toolbox.expr) #individual creation
     toolbox.register("population", tools.initRepeat, list, toolbox.individual) #population creation
     toolbox.register("compile", gp.compile, pset=skelton) #compiling trees into expressions
@@ -244,7 +251,7 @@ def current_accuracy(train_data, validate_data):
     
     return accuracy
 
-def evaluate_individual(individual, train_data, validate_data, toolbox):
+def evaluate_individual(individual, train_data, validate_data, test_data, toolbox):
     """
     Evaluate an individual formula (GP tree) on three models:
     - KNN (k=3)
@@ -255,6 +262,7 @@ def evaluate_individual(individual, train_data, validate_data, toolbox):
     - individual: The GP tree representing the formula.
     - train_data: Training data (list of feature vectors with labels as the last element).
     - validate_data: Validation data (list of feature vectors with labels as the last element).
+    - test_data: Test data (list of feature vectors with labels as the last element).
     - toolbox: DEAP toolbox containing the compiled function.
     
     Returns:
@@ -263,6 +271,7 @@ def evaluate_individual(individual, train_data, validate_data, toolbox):
     # Compile the individual formula into a callable function
     train_data = toolbox.train_data
     validate_data = toolbox.validate_data
+    test_data = toolbox.test_data  # Add test data
     func = toolbox.compile(expr=individual)
     
     # Extract features and labels from training data
@@ -290,18 +299,31 @@ def evaluate_individual(individual, train_data, validate_data, toolbox):
             validate_labels.append(label)
         except Exception as e:
             print(f"Error applying formula to validation instance: {e}")
+
+    # Extract features and labels from test data
+    test_features = []
+    test_labels = []
+    for instance in test_data:
+        features = instance[:-1]
+        label = instance[-1]
+        try:
+            value = func(*features)
+            test_features.append([value])  # Wrap value to keep 2D array structure
+            test_labels.append(label)
+        except Exception as e:
+            print(f"Error applying formula to test instance: {e}")
     
     # Initialize results dictionary
     results = {}
 
     # Ensure there are valid features and labels
-    if len(train_features) > 0 and len(validate_features) > 0:
+    if len(train_features) > 0 and len(validate_features) > 0 and len(test_features) > 0:
         # Model 1: KNN (k=3)
         try:
             knn = KNeighborsClassifier(n_neighbors=3)
             knn.fit(train_features, train_labels)
-            knn_preds = knn.predict(validate_features)
-            results['KNN'] = accuracy_score(validate_labels, knn_preds)
+            knn_preds = knn.predict(test_features)  # Use test data for predictions
+            results['KNN'] = accuracy_score(test_labels, knn_preds)  # Calculate test accuracy
         except Exception as e:
             print(f"Error with KNN: {e}")
             results['KNN'] = 0.0
@@ -310,26 +332,24 @@ def evaluate_individual(individual, train_data, validate_data, toolbox):
         try:
             lr = LogisticRegression(max_iter=1000)
             lr.fit(train_features, train_labels)
-            lr_preds = lr.predict(validate_features)
-            results['LogisticRegression'] = accuracy_score(validate_labels, lr_preds)
+            lr_preds = lr.predict(test_features)  # Use test data for predictions
+            results['Logistic Regression'] = accuracy_score(test_labels, lr_preds)
         except Exception as e:
             print(f"Error with Logistic Regression: {e}")
-            results['LogisticRegression'] = 0.0
+            results['Logistic Regression'] = 0.0
 
         # Model 3: Decision Tree
         try:
             dt = DecisionTreeClassifier()
             dt.fit(train_features, train_labels)
-            dt_preds = dt.predict(validate_features)
-            results['DecisionTree'] = accuracy_score(validate_labels, dt_preds)
+            dt_preds = dt.predict(test_features)  # Use test data for predictions
+            results['Decision Tree'] = accuracy_score(test_labels, dt_preds)
         except Exception as e:
             print(f"Error with Decision Tree: {e}")
-            results['DecisionTree'] = 0.0
-    else:
-        print("Error: No valid features for training or validation.")
-        results = {'KNN': 0.0, 'LogisticRegression': 0.0, 'DecisionTree': 0.0}
-    
+            results['Decision Tree'] = 0.0
+
     return results
+
 
 
 main()
