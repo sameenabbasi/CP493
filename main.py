@@ -11,7 +11,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
-
+import matplotlib as plt
+import numpy as np
 
 
 
@@ -26,41 +27,56 @@ def main():
     print(f'Inital Accuracy on Raw Features: {accuracy}')
 
     #initalizae a population
-    population, toolbox = initialization(train_features, val_features, test_features)
-    for individual in population:
-        accuracy = evaluate(individual, toolbox)
-        print(accuracy, individual)
-    
-    #the genetic algorithn
-    algorithms.eaMuPlusLambda(
-    population,
-    toolbox,
-    mu=100,         # Number of parents
-    lambda_=80,    # Number of offspring
-    cxpb=0.7,       # Crossover probability
-    mutpb=0.3,      # Mutation probability
-    ngen=30,        # Number of generations
-    verbose=True
-    )
-    
-    #sub(add(ARG177, add(ARG409, ARG409)), ARG886)
-    #add(add(add(add(ARG603, ARG493), add(add(add(ARG788, ARG768), ARG570), ARG920)), ARG920), add(ARG525, ARG493))
-    #print(population)
-    #add(sub(sub(ARG185, sub(truediv(ARG975, ARG476), add(ARG462, ARG488))), ARG920), ARG462)
-    
+    population, toolbox, pset = initialization(train_features, val_features, test_features)
+    #subtrees = extract_subtrees(individual)
 
+    # List to store best accuracy per generation
+    best_fitness_per_gen = []
+
+    # Define statistics object to track the highest fitness (accuracy)
+    stats = tools.Statistics(lambda ind: ind.fitness.values[0])
+    stats.register("max", np.max)  # Track best accuracy each generation
+
+    # Logbook to store the statistics
+    logbook = tools.Logbook()
+
+    # Run the genetic algorithm and track stats
+    pop, log = algorithms.eaMuPlusLambda(
+        population,
+        toolbox,
+        mu=100,         # Number of parents
+        lambda_=80,     # Number of offspring
+        cxpb=0.7,       # Crossover probability
+        mutpb=0.3,      # Mutation probability
+        ngen=5,        # Number of generations
+        stats=stats,    # Track stats
+        halloffame=None,
+        verbose=True
+    )
+
+    # Extract best fitness (max accuracy) from each generation
+    best_fitness_per_gen = log.select("max")
+
+    # Plot the best accuracy over generations
+    plt.plot(range(len(best_fitness_per_gen)), best_fitness_per_gen, marker='o', linestyle='-', color='b', label="Best Accuracy")
+    plt.xlabel("Generation")
+    plt.ylabel("Best Accuracy")
+    plt.title("Evolution of Best Accuracy Over Generations")
+    plt.legend()
+    plt.grid()
+    plt.show()
     #after all generations, print the last population and their accuracy
     for individual in population:
         accuracy = evaluate(individual, toolbox)
         print(accuracy, individual)
 
-    #take one best individual 
+    """#take one best individual 
     individual = 'mul(sub(add(mul(ARG596, ARG1014), add(ARG683, ARG123)), sub(add(ARG272, ARG982), add(ARG228, ARG886))), add(add(add(ARG288, ARG887), add(ARG899, ARG192)), mul(mul(ARG992, ARG57), sub(ARG160, ARG464))))'
     # Evaluate the individual on 3 models
     accuracy_results = evaluate_individual(individual, train_features, val_features, test_features, toolbox)
     print("Accuracy Results:")
     print(accuracy_results)
-
+"""
     return
 
 
@@ -92,78 +108,112 @@ def initialization(train_data, validate_data, test_data):
     toolbox.train_data = train_data
     toolbox.validate_data = validate_data
     toolbox.test_data = test_data
-    toolbox.register("expr", gp.genHalfAndHalf, pset=skelton, min_=4, max_=15) #tree creation
+    toolbox.register("expr", gp.genHalfAndHalf, pset=skelton, min_=4, max_=10) #tree creation
     toolbox.register("individual", tools.initIterate, creator.Individual,toolbox.expr) #individual creation
     toolbox.register("population", tools.initRepeat, list, toolbox.individual) #population creation
     toolbox.register("compile", gp.compile, pset=skelton) #compiling trees into expressions
-    toolbox.register("evaluate", evaluate, toolbox=toolbox) #sets evaluate as function to evaluates the individuals
+    toolbox.register("evaluate", evaluate, toolbox=toolbox, pset=skelton) #sets evaluate as function to evaluates the individuals
     toolbox.register("select", tools.selLexicase) #selection, using multiobjective nsga II algorithm right now
     toolbox.register("mate", gp.cxOnePointLeafBiased, termpb=0.1) #crossover, swaps subtrees at 1 point
     toolbox.register("mutate", gp.mutNodeReplacement, pset=skelton) #mutation, new subtrees (there are other ways too)
     toolbox.register("expr_mut", gp.genGrow, min_=1, max_=3) #new mutations generation
 
-    population = toolbox.population(n=100) #creates inital population of 100
+    population = toolbox.population(n=20) #creates inital population of 100
 
-    return population, toolbox
+    return population, toolbox, skelton
 
+def extract_subtrees(expression,pset):
+    subtrees = []
+    stack = []
+    subnew= []
+    # Iterate through the expression character by character
+    for i, char in enumerate(expression):
+        if char == '(':
+            stack.append(i)  # Store the position of the opening bracket
+        elif char == ')':
+            if stack:
+                start = stack.pop()  # Get the last opened bracket position
+                subtrees.append(expression[start+1:i])  # Extract content inside the brackets
+    for expr in subtrees:
+        try:
+            newexp = gp.PrimitiveTree.from_string(expr, pset)
+            subnew.append(newexp)
+        except Exception as e:
+            print(f"Error parsing {expr}: {e}")
+    print(subtrees)
+    return subnew
 
-def evaluate(individual, toolbox):
-
-    # Access the data directly from the toolbox (which we set earlier in initalization)
+def transform_data(individual, toolbox, pset):
     train_data = toolbox.train_data
     validate_data = toolbox.validate_data
-    
-    # Compile the individual tree to get the expression function
-    func = toolbox.compile(expr=individual)
-    
-    # Prepare the training features and labels
+
     train_features = []
     train_labels = []
-    for instance in train_data:
-        features = instance[:-1]
-        # Check if func is not None before using it
-        
-        if func is not None:
-            try:
-                
-                # Call func with the features
-                feature_value = func(*features)
-                #print(feature_value)
-                if np.isfinite(feature_value):  # Check for NaN or Infinity
-                    train_features.append(feature_value)
-                    train_labels.append(instance[-1])  # Label
-                else:
-                    print(f"Warning: Invalid feature value (NaN or Infinity) for instance {instance}")
-            
-            except Exception as e:
-                print(f"Error during feature construction: {e}")
-        
-        else:
-            print("Error: Function is None. Feature construction skipped.")
-    
+    subtrees = extract_subtrees(str(individual), pset)
 
-    # Prepare the validation features and labels
+
+    for instance in train_data:
+        datapoint = []
+        features = instance[:-1]
+        for subtree in subtrees:
+            func = toolbox.compile(expr=subtree)
+            if func is not None:
+                try:
+                    
+                    # Call func with the features
+                    feature_value = func(*features)
+                    #print(feature_value)
+                    if np.isfinite(feature_value):  # Check for NaN or Infinity
+                        datapoint.append(feature_value)
+                    else:
+                        print(f"Warning: Invalid feature value (NaN or Infinity) for instance {instance}")
+                
+                except Exception as e:
+                    print(f"Error during feature construction: {e}")
+            
+            else:
+                print("Error: Function is None. Feature construction skipped.")
+        train_features.append(datapoint)
+        train_labels.append(instance[-1])  # Label
+
     validate_features = []
     validate_labels = []
-    for instance in validate_data:
-        features = instance[:-1]
-        feature_value = func(*features)
 
-        if np.isfinite(feature_value):  # Check for NaN or Infinity
-            validate_features.append(feature_value)
-            validate_labels.append(instance[-1])  # Label
-        else:
-            print(f"Warning: Invalid feature value (NaN or Infinity) for validation instance {instance}")
+    for instance in validate_data:
+        datapoint = []
+        features = instance[:-1]
+        for subtree in subtrees:
+            func = toolbox.compile(expr=subtree)
+            if func is not None:
+                try:
+                    
+                    # Call func with the features
+                    feature_value = func(*features)
+                    #print(feature_value)
+                    if np.isfinite(feature_value):  # Check for NaN or Infinity
+                        datapoint.append(feature_value)
+                    else:
+                        print(f"Warning: Invalid feature value (NaN or Infinity) for instance {instance}")
+                
+                except Exception as e:
+                    print(f"Error during feature construction: {e}")
+            
+            else:
+                print("Error: Function is None. Feature construction skipped.")
+        validate_features.append(datapoint)
+        validate_labels.append(instance[-1])  # Label
     
+    return train_features, train_labels, validate_features, validate_labels
+
+def evaluate(individual, toolbox, pset):
+    print("evaluate")
+    train_features, train_labels, validate_features, validate_labels = transform_data(individual, toolbox, pset)
+    #print(f'train features: {train_features[0]}')
     if len(train_features) > 0 and len(validate_features) > 0:
         try:
             knn = KNeighborsClassifier(n_neighbors=3)
-            knn.fit([[f] for f in train_features], train_labels)
-
-            # Test the KNN classifier on the validation data
-            accuracy = knn.score([[f] for f in validate_features], validate_labels)
-
-            # Return accuracy as a tuple
+            knn.fit(train_features, train_labels)
+            accuracy = knn.score(validate_features, validate_labels)
             return accuracy,
         except ValueError as e:
             print(f"Error during KNN fitting: {e}")
