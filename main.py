@@ -11,12 +11,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
-import matplotlib as plt
+import matplotlib.pyplot as plt
 import numpy as np
 
 
 
 def main():
+    
     #read the data from training and validation
     train_features = dataset("TrainingData", "train_brain.xlsx", data_type='training')
     val_features = dataset("TrainingData", "validation_brain.xlsx", data_type='validation')
@@ -48,7 +49,7 @@ def main():
         lambda_=80,     # Number of offspring
         cxpb=0.7,       # Crossover probability
         mutpb=0.3,      # Mutation probability
-        ngen=5,        # Number of generations
+        ngen=20,        # Number of generations
         stats=stats,    # Track stats
         halloffame=None,
         verbose=True
@@ -67,16 +68,17 @@ def main():
     plt.show()
     #after all generations, print the last population and their accuracy
     for individual in population:
-        accuracy = evaluate(individual, toolbox)
+        accuracy = evaluate(individual, toolbox, pset)
         print(accuracy, individual)
 
-    """#take one best individual 
-    individual = 'mul(sub(add(mul(ARG596, ARG1014), add(ARG683, ARG123)), sub(add(ARG272, ARG982), add(ARG228, ARG886))), add(add(add(ARG288, ARG887), add(ARG899, ARG192)), mul(mul(ARG992, ARG57), sub(ARG160, ARG464))))'
+
+    best_individual = tools.selBest(population, k=1)[0]
+    #take one best individual 
+    #individual = 'mul(sub(add(mul(ARG596, ARG1014), add(ARG683, ARG123)), sub(add(ARG272, ARG982), add(ARG228, ARG886))), add(add(add(ARG288, ARG887), add(ARG899, ARG192)), mul(mul(ARG992, ARG57), sub(ARG160, ARG464))))'
     # Evaluate the individual on 3 models
-    accuracy_results = evaluate_individual(individual, train_features, val_features, test_features, toolbox)
+    accuracy_results = evaluate_individual(best_individual, train_features, val_features, test_features, toolbox)
     print("Accuracy Results:")
     print(accuracy_results)
-"""
     return
 
 
@@ -118,95 +120,48 @@ def initialization(train_data, validate_data, test_data):
     toolbox.register("mutate", gp.mutNodeReplacement, pset=skelton) #mutation, new subtrees (there are other ways too)
     toolbox.register("expr_mut", gp.genGrow, min_=1, max_=3) #new mutations generation
 
-    population = toolbox.population(n=20) #creates inital population of 100
+    population = toolbox.population(n=100) #creates inital population of 100
 
     return population, toolbox, skelton
 
-def extract_subtrees(expression,pset):
+def extract_subtrees(individual, pset):
     subtrees = []
-    stack = []
-    subnew= []
-    # Iterate through the expression character by character
-    for i, char in enumerate(expression):
-        if char == '(':
-            stack.append(i)  # Store the position of the opening bracket
-        elif char == ')':
-            if stack:
-                start = stack.pop()  # Get the last opened bracket position
-                subtrees.append(expression[start+1:i])  # Extract content inside the brackets
-    for expr in subtrees:
-        try:
-            newexp = gp.PrimitiveTree.from_string(expr, pset)
-            subnew.append(newexp)
-        except Exception as e:
-            print(f"Error parsing {expr}: {e}")
-    print(subtrees)
-    return subnew
+    
+    # Iterate over all nodes in the tree
+    for i in range(len(individual)):
+        subtree = individual.searchSubtree(i)  # Get the subtree as a slice
+        subtrees.append(gp.compile(gp.PrimitiveTree(individual[subtree]), pset))  # Compile full subtree
+    
+    return subtrees
 
 def transform_data(individual, toolbox, pset):
     train_data = toolbox.train_data
     validate_data = toolbox.validate_data
 
-    train_features = []
-    train_labels = []
-    subtrees = extract_subtrees(str(individual), pset)
+    train_features, train_labels = [], []
+    validate_features, validate_labels = [], []
 
+    subtrees = extract_subtrees(individual, pset)  # Extract subtree functions
 
-    for instance in train_data:
-        datapoint = []
-        features = instance[:-1]
-        for subtree in subtrees:
-            func = toolbox.compile(expr=subtree)
-            if func is not None:
+    # Apply subtrees to training and validation data
+    for dataset, features_list, labels_list in [(train_data, train_features, train_labels), 
+                                                 (validate_data, validate_features, validate_labels)]:
+        for instance in dataset:
+            datapoint = []
+            features = instance[:-1]
+            for subtree_func in subtrees:
                 try:
-                    
-                    # Call func with the features
-                    feature_value = func(*features)
-                    #print(feature_value)
-                    if np.isfinite(feature_value):  # Check for NaN or Infinity
+                    feature_value = subtree_func(*features)
+                    if np.isfinite(feature_value):
                         datapoint.append(feature_value)
-                    else:
-                        print(f"Warning: Invalid feature value (NaN or Infinity) for instance {instance}")
-                
                 except Exception as e:
-                    print(f"Error during feature construction: {e}")
-            
-            else:
-                print("Error: Function is None. Feature construction skipped.")
-        train_features.append(datapoint)
-        train_labels.append(instance[-1])  # Label
+                    print(f"Error applying subtree: {e}")
+            features_list.append(datapoint)
+            labels_list.append(instance[-1])
 
-    validate_features = []
-    validate_labels = []
-
-    for instance in validate_data:
-        datapoint = []
-        features = instance[:-1]
-        for subtree in subtrees:
-            func = toolbox.compile(expr=subtree)
-            if func is not None:
-                try:
-                    
-                    # Call func with the features
-                    feature_value = func(*features)
-                    #print(feature_value)
-                    if np.isfinite(feature_value):  # Check for NaN or Infinity
-                        datapoint.append(feature_value)
-                    else:
-                        print(f"Warning: Invalid feature value (NaN or Infinity) for instance {instance}")
-                
-                except Exception as e:
-                    print(f"Error during feature construction: {e}")
-            
-            else:
-                print("Error: Function is None. Feature construction skipped.")
-        validate_features.append(datapoint)
-        validate_labels.append(instance[-1])  # Label
-    
     return train_features, train_labels, validate_features, validate_labels
 
 def evaluate(individual, toolbox, pset):
-    print("evaluate")
     train_features, train_labels, validate_features, validate_labels = transform_data(individual, toolbox, pset)
     #print(f'train features: {train_features[0]}')
     if len(train_features) > 0 and len(validate_features) > 0:
@@ -301,7 +256,7 @@ def current_accuracy(train_data, validate_data):
     
     return accuracy
 
-def evaluate_individual(individual, train_data, validate_data, test_data, toolbox):
+def evaluate_individual(individual, toolbox, pset):
     """
     Evaluate an individual formula (GP tree) on three models:
     - KNN (k=3)
@@ -318,50 +273,29 @@ def evaluate_individual(individual, train_data, validate_data, test_data, toolbo
     Returns:
     - dict: A dictionary containing accuracy rates for KNN, Logistic Regression, and Decision Tree.
     """
-    # Compile the individual formula into a callable function
-    train_data = toolbox.train_data
-    validate_data = toolbox.validate_data
-    test_data = toolbox.test_data  # Add test data
-    func = toolbox.compile(expr=individual)
-    
-    # Extract features and labels from training data
-    train_features = []
-    train_labels = []
-    for instance in train_data:
-        features = instance[:-1]  # First 1024 features
-        label = instance[-1]      # Last element is the label
-        try:
-            value = func(*features)  # Apply the formula
-            train_features.append([value])  # Wrap value to keep 2D array structure
-            train_labels.append(label)
-        except Exception as e:
-            print(f"Error applying formula to training instance: {e}")
-    
-    # Extract features and labels from validation data
-    validate_features = []
-    validate_labels = []
-    for instance in validate_data:
-        features = instance[:-1]
-        label = instance[-1]
-        try:
-            value = func(*features)
-            validate_features.append([value])  # Wrap value to keep 2D array structure
-            validate_labels.append(label)
-        except Exception as e:
-            print(f"Error applying formula to validation instance: {e}")
+    train_features, train_labels, validate_features, validate_labels = transform_data(individual, toolbox, pset)
 
-    # Extract features and labels from test data
-    test_features = []
-    test_labels = []
-    for instance in test_data:
+    test_data = toolbox.test_data
+
+    test_features, test_labels = [], []
+    
+    subtrees = extract_subtrees(individual, pset)  # Extract subtree functions
+
+    for instance in test_data:  
+        datapoint = []
         features = instance[:-1]
-        label = instance[-1]
-        try:
-            value = func(*features)
-            test_features.append([value])  # Wrap value to keep 2D array structure
-            test_labels.append(label)
-        except Exception as e:
-            print(f"Error applying formula to test instance: {e}")
+        
+        for subtree_func in subtrees:
+            try:
+                feature_value = subtree_func(*features)
+                if np.isfinite(feature_value):
+                    datapoint.append(feature_value)
+            except Exception as e:
+                print(f"Error applying subtree: {e}")
+        
+        test_features.append(datapoint)
+        test_labels.append(instance[-1])
+
     
     # Initialize results dictionary
     results = {}
