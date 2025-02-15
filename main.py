@@ -13,6 +13,8 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score
 import matplotlib.pyplot as plt
 import numpy as np
+import cProfile
+import pstats
 
 
 
@@ -30,7 +32,6 @@ def main():
     #initalizae a population
     population, toolbox, pset = initialization(train_features, val_features, test_features)
     #subtrees = extract_subtrees(individual)
-
     # List to store best accuracy per generation
     best_fitness_per_gen = []
 
@@ -46,10 +47,10 @@ def main():
         population,
         toolbox,
         mu=100,         # Number of parents
-        lambda_=80,     # Number of offspring
+        lambda_=100,     # Number of offspring
         cxpb=0.7,       # Crossover probability
         mutpb=0.3,      # Mutation probability
-        ngen=20,        # Number of generations
+        ngen=30,        # Number of generations
         stats=stats,    # Track stats
         halloffame=None,
         verbose=True
@@ -67,18 +68,13 @@ def main():
     plt.grid()
     plt.show()
     #after all generations, print the last population and their accuracy
-    for individual in population:
-        accuracy = evaluate(individual, toolbox, pset)
-        print(accuracy, individual)
-
-
-    best_individual = tools.selBest(population, k=1)[0]
+    for i in range(99):
+        best_individual = population[i]
     #take one best individual 
     #individual = 'mul(sub(add(mul(ARG596, ARG1014), add(ARG683, ARG123)), sub(add(ARG272, ARG982), add(ARG228, ARG886))), add(add(add(ARG288, ARG887), add(ARG899, ARG192)), mul(mul(ARG992, ARG57), sub(ARG160, ARG464))))'
     # Evaluate the individual on 3 models
-    accuracy_results = evaluate_individual(best_individual, train_features, val_features, test_features, toolbox)
-    print("Accuracy Results:")
-    print(accuracy_results)
+        accuracy_results = evaluate_individual(best_individual, toolbox, pset)
+        print(accuracy_results, best_individual)
     return
 
 
@@ -110,14 +106,14 @@ def initialization(train_data, validate_data, test_data):
     toolbox.train_data = train_data
     toolbox.validate_data = validate_data
     toolbox.test_data = test_data
-    toolbox.register("expr", gp.genHalfAndHalf, pset=skelton, min_=4, max_=10) #tree creation
+    toolbox.register("expr", gp.genHalfAndHalf, pset=skelton, min_=4, max_=7) #tree creation
     toolbox.register("individual", tools.initIterate, creator.Individual,toolbox.expr) #individual creation
     toolbox.register("population", tools.initRepeat, list, toolbox.individual) #population creation
     toolbox.register("compile", gp.compile, pset=skelton) #compiling trees into expressions
     toolbox.register("evaluate", evaluate, toolbox=toolbox, pset=skelton) #sets evaluate as function to evaluates the individuals
     toolbox.register("select", tools.selLexicase) #selection, using multiobjective nsga II algorithm right now
-    toolbox.register("mate", gp.cxOnePointLeafBiased, termpb=0.1) #crossover, swaps subtrees at 1 point
-    toolbox.register("mutate", gp.mutNodeReplacement, pset=skelton) #mutation, new subtrees (there are other ways too)
+    toolbox.register("mate", gp.cxOnePoint) #crossover, swaps subtrees at 1 point
+    toolbox.register("mutate", gp.mutInsert, pset=skelton) #mutation, new subtrees (there are other ways too)
     toolbox.register("expr_mut", gp.genGrow, min_=1, max_=3) #new mutations generation
 
     population = toolbox.population(n=100) #creates inital population of 100
@@ -125,6 +121,7 @@ def initialization(train_data, validate_data, test_data):
     return population, toolbox, skelton
 
 def extract_subtrees(individual, pset):
+    print('extract subtrees')
     subtrees = []
     
     # Iterate over all nodes in the tree
@@ -135,6 +132,7 @@ def extract_subtrees(individual, pset):
     return subtrees
 
 def transform_data(individual, toolbox, pset):
+    print('transform data')
     train_data = toolbox.train_data
     validate_data = toolbox.validate_data
 
@@ -162,6 +160,7 @@ def transform_data(individual, toolbox, pset):
     return train_features, train_labels, validate_features, validate_labels
 
 def evaluate(individual, toolbox, pset):
+    print('evaluate')
     train_features, train_labels, validate_features, validate_labels = transform_data(individual, toolbox, pset)
     #print(f'train features: {train_features[0]}')
     if len(train_features) > 0 and len(validate_features) > 0:
@@ -335,8 +334,15 @@ def evaluate_individual(individual, toolbox, pset):
     return results
 
 
-
-main()
+if __name__ == "__main__":
+    profiler = cProfile.Profile()
+    profiler.enable()
+    
+    main()  # Call your main function
+    
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.strip_dirs().sort_stats("cumulative").print_stats(10)  # Show top 20 slowest functions
 
 
 """
