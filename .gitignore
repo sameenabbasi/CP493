@@ -1,0 +1,9 @@
+TrainingData
+AllKimiaPatches
+saved_individuals
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore Python virtual environments
+venv/

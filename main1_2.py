@@ -163,6 +163,10 @@ def evaluate(individual, toolbox, pset, data_type):
     #print(f'\nThe Transformed First data Point: {train_features[0]}')
     if data_type=="test":
         print(f'Shape: {np.array(train_features).shape}')
+        print(f'Shape: {np.array(eval_features).shape}')
+    else:
+        print(f'Shape: {np.array(eval_features).shape}')
+
     if len(train_features) > 0 and len(eval_features) > 0:
         knn = KNeighborsClassifier(n_neighbors=3)
         knn.fit(train_features, train_labels)
@@ -277,7 +281,7 @@ def initialization(train_data, validate_data, test_data):
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
     toolbox.register("compile", gp.compile, pset=pset)
     toolbox.register("evaluate", evaluate, toolbox=toolbox, pset=pset, data_type="validation")
-    toolbox.register("select", tools.selTournament, tournsize=4)
+    toolbox.register("select", tools.selTournament, tournsize=3)
     toolbox.register("mate", gp.cxOnePoint)
     toolbox.register("mutate", gp.mutInsert, pset=pset)
 
@@ -285,6 +289,7 @@ def initialization(train_data, validate_data, test_data):
     return population, toolbox, pset
 
 def current_accuracy(train_data, test_data):
+    
     train_features = [instance[:-1] for instance in train_data]
     train_labels = [instance[-1] for instance in train_data]
     test_features = [instance[:-1] for instance in test_data]
@@ -313,3 +318,50 @@ def extract_organ_features(metadata_file, directory, organ):
                     imagesfeatures.append(average_vector)
     return imagesfeatures
 
+def dataset(directory, metadata_file):
+    """
+    Load dataset features and labels from the specified directory and metadata file.
+    """
+    imagesfeatures = []
+
+    # Load the metadata file
+    data = pd.read_excel(metadata_file, usecols=[0, 1])  # Loading the excel info
+    filename_list = data['Filename'].tolist()  # Filenames from the metadata
+    labels_dict = pd.Series(data['Label'].values, index=data['Filename']).to_dict()  # Label dictionary
+
+    # Iterate over files in the specified directory
+    for filename in os.listdir(directory):
+        check = filename.split('_', 1)  # Split the filename to check against the metadata
+
+        # If the filename matches the ones in the metadata file
+        if check[0] in labels_dict:
+            f = os.path.join(directory, filename)  # Create full file path
+
+            # Open and load the file
+            with open(f, 'rb') as filecontents:
+                data = pickle.load(filecontents)  # Loading the file data
+                items = data.items()  # Converting the data to list format
+                arr = []  # List to hold valid patches
+
+                for d in items:
+                    patch = d[1]
+                    if not np.any(np.isnan(patch)):  # Check for NaNs in the patch
+                        arr.append(patch)  # Add valid patch
+                    else:
+                        print(f"Skipping patch with NaN values: {patch}")
+
+                # Calculate the average if there are valid patches
+                if arr:
+                    average_vector = np.mean(arr, axis=0)
+                else:
+                    print(f"Skipping empty patch list for file {filename}")
+                    continue  # Skip file if no valid patches
+
+                # Get the label for the current file
+                label = labels_dict[check[0]]
+                average_vector = np.append(average_vector, label)  # Append label to the average vector
+                imagesfeatures.append(average_vector)  # Append the feature vector to the list
+        #else:
+            #print(f"Filename {filename} not found in {data_type} data.")
+
+    return imagesfeatures
