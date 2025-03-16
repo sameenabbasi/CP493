@@ -162,10 +162,10 @@ def evaluate(individual, toolbox, pset, data_type):
     train_features, train_labels, eval_features, eval_labels = transform_data(individual, train_data, eval_data, pset, data_type)
     #print(f'\nThe Transformed First data Point: {train_features[0]}')
     if data_type=="test":
-        print(f'Shape: {np.array(train_features).shape}')
+        #print(f'Shape: {np.array(train_features).shape}')
         print(f'Shape: {np.array(eval_features).shape}')
-    else:
-        print(f'Shape: {np.array(eval_features).shape}')
+    #else:
+        #print(f'Shape: {np.array(eval_features).shape}')
 
     if len(train_features) > 0 and len(eval_features) > 0:
         knn = KNeighborsClassifier(n_neighbors=3)
@@ -268,6 +268,7 @@ def initialization(train_data, validate_data, test_data):
     pset.addPrimitive(operator.add, 2)
     pset.addPrimitive(operator.sub, 2)
     pset.addPrimitive(operator.mul, 2)
+    #pset.addPrimitive(operator.truediv, 2)
 
     creator.create("FitnessMax", base.Fitness, weights=(1.0,))
     creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMax)
@@ -316,6 +317,28 @@ def extract_organ_features(metadata_file, directory, organ):
                     average_vector = np.mean(arr, axis=0).tolist()
                     average_vector.append(labels_dict[slide_id])
                     imagesfeatures.append(average_vector)
+    return imagesfeatures
+
+def extract_features_bylabel(metadata_file, directory, disease_types):
+    imagesfeatures = []  # formatted data
+    data = pd.read_excel(metadata_file)
+
+    # Filter rows where 'disease_type' matches any of the specified values
+    disease_data = data[data['disease_type'].isin(disease_types)]
+    labels_dict = pd.Series(disease_data['disease_type'].values, index=disease_data['slide_name']).to_dict()
+
+    for filename in os.listdir(directory):
+        slide_id = filename.split('_', 1)[0]
+        if slide_id in labels_dict:
+            file_path = os.path.join(directory, filename)
+            with open(file_path, 'rb') as filecontents:
+                data = pickle.load(filecontents)
+                arr = [patch for _, patch in data.items() if not np.any(np.isnan(patch))]
+                if arr:
+                    average_vector = np.mean(arr, axis=0).tolist()
+                    average_vector.append(labels_dict[slide_id])
+                    imagesfeatures.append(average_vector)
+                    
     return imagesfeatures
 
 def dataset(directory, metadata_file):

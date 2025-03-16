@@ -7,3 +7,5 @@ Thumbs.db
 
 # Ignore Python virtual environments
 venv/
+
+AllDensePatches
